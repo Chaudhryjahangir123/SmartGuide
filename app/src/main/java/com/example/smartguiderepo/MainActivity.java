@@ -1,4 +1,5 @@
 package com.example.smartguiderepo;
+
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import android.Manifest;
@@ -23,8 +24,10 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     private Camera camera;
     private TextToSpeech tts;
     private Button btnDetect, btnVoice, btnLanguage;
+
     private static final int CAMERA_PERMISSION_CODE = 100;
     private static final int VOICE_RECOGNITION_REQUEST = 200;
+
     private boolean isCameraOn = false;
     private boolean isEnglish = true;
 
@@ -66,10 +69,22 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         btnLanguage.setOnClickListener(v -> toggleLanguage());
     }
 
+    // Unified speak() that auto-translates when Urdu is active
     private void speak(String message) {
+        if (!isEnglish) {
+            if (message.equalsIgnoreCase("Object ahead"))
+                message = "سامنے رکاوٹ موجود ہے";
+            else if (message.equalsIgnoreCase("Navigation stopped"))
+                message = "نیویگیشن بند کر دی گئی ہے";
+            else if (message.equalsIgnoreCase("Command not recognized"))
+                message = "کمانڈ سمجھ میں نہیں آئی";
+            else if (message.equalsIgnoreCase("Camera not ready"))
+                message = "کیمرہ تیار نہیں ہے";
+        }
         tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, null);
     }
 
+    // Camera setup
     private void openCamera() {
         surfaceHolder = cameraPreview.getHolder();
         surfaceHolder.addCallback(this);
@@ -79,6 +94,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     public void surfaceCreated(@NonNull SurfaceHolder holder) {
         try {
             camera = Camera.open();
+            camera.setDisplayOrientation(90); // portrait mode
             camera.setPreviewDisplay(holder);
             camera.startPreview();
             isCameraOn = true;
@@ -87,9 +103,13 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     }
 
-    @Override public void surfaceChanged(@NonNull SurfaceHolder h, int f, int w, int he) {}
+    @Override public void surfaceChanged(@NonNull SurfaceHolder h, int f, int w, int he) { }
     @Override public void surfaceDestroyed(@NonNull SurfaceHolder h) {
-        if (camera != null) { camera.stopPreview(); camera.release(); camera = null; }
+        if (camera != null) {
+            camera.stopPreview();
+            camera.release();
+            camera = null;
+        }
         isCameraOn = false;
     }
 
@@ -102,7 +122,8 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         try {
             startActivityForResult(intent, VOICE_RECOGNITION_REQUEST);
         } catch (Exception e) {
-            speak("Voice recognition not supported on this device");
+            speak(isEnglish ? "Voice recognition not supported on this device"
+                    : "وائس کمانڈ اس ڈیوائس پر دستیاب نہیں ہے");
         }
     }
 
@@ -114,20 +135,25 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             if (results != null && !results.isEmpty()) {
                 String command = results.get(0).toLowerCase(Locale.ROOT);
                 if (command.contains("detect")) {
-                    speak(isEnglish ? "Object ahead" : "سامنے رکاوٹ موجود ہے");
+                    speak("Object ahead");
                 } else if (command.contains("stop")) {
-                    speak(isEnglish ? "Navigation stopped" : "نیویگیشن بند کر دی گئی ہے");
+                    speak("Navigation stopped");
                 } else {
-                    speak(isEnglish ? "Command not recognized" : "کمانڈ سمجھ میں نہیں آئی");
+                    speak("Command not recognized");
                 }
             }
         }
     }
 
-    // Toggle between English and Urdu
+    // Language toggle
     private void toggleLanguage() {
         if (isEnglish) {
-            tts.setLanguage(new Locale("ur", "PK"));
+            int result = tts.setLanguage(new Locale("ur", "PK"));
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                Toast.makeText(this, "Urdu TTS not available on this device", Toast.LENGTH_SHORT).show();
+                speak("Urdu language not supported on this device");
+                return;
+            }
             speak("زبان اردو میں بدل دی گئی ہے");
             btnLanguage.setText("Switch to English");
         } else {
@@ -139,10 +165,11 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
+                                           @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == CAMERA_PERMISSION_CODE && grantResults.length > 0 &&
-                grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        if (requestCode == CAMERA_PERMISSION_CODE &&
+                grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             openCamera();
         } else {
             Toast.makeText(this, "Camera permission denied", Toast.LENGTH_SHORT).show();
@@ -152,7 +179,13 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (tts != null) { tts.stop(); tts.shutdown(); }
-        if (camera != null) { camera.stopPreview(); camera.release(); }
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+        }
+        if (camera != null) {
+            camera.stopPreview();
+            camera.release();
+        }
     }
 }
