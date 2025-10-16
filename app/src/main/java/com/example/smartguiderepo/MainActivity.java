@@ -16,6 +16,13 @@ import android.widget.Toast;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Locale;
+import android.graphics.ImageFormat;
+import android.hardware.Camera;
+import android.hardware.Camera.PreviewCallback;
+import java.util.Random;
+
+
+
 
 public class MainActivity extends AppCompatActivity implements SurfaceHolder.Callback {
 
@@ -28,8 +35,14 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     private static final int CAMERA_PERMISSION_CODE = 100;
     private static final int VOICE_RECOGNITION_REQUEST = 200;
 
+    private long lastBrightnessCheckTime = 0;
+    private static final int BRIGHTNESS_INTERVAL = 3000; // check every 3 seconds
+
     private boolean isCameraOn = false;
     private boolean isEnglish = true;
+    private final String[] fakeObjects = {"door", "wall", "person", "stairs", "chair"};
+    private final Random random = new Random();
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,7 +74,14 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             if (isCameraOn) speak("Object ahead");
             else speak("Camera not ready");
         });
-
+        btnDetect.setOnClickListener(v -> {
+            if (isCameraOn) {
+                String detected = fakeObjects[random.nextInt(fakeObjects.length)];
+                speak("Detected " + detected + " ahead");
+            } else {
+                speak("Camera not ready");
+            }
+        });
         // Voice command button
         btnVoice.setOnClickListener(v -> startVoiceRecognition());
 
@@ -97,7 +117,29 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             camera.setDisplayOrientation(90); // portrait mode
             camera.setPreviewDisplay(holder);
             camera.startPreview();
+            camera.setDisplayOrientation(90);
             isCameraOn = true;
+            camera.setPreviewCallback(new PreviewCallback() {
+                @Override
+                public void onPreviewFrame(byte[] data, Camera camera) {
+                    Camera.Parameters parameters = camera.getParameters();
+                    if (parameters.getPreviewFormat() == ImageFormat.NV21) {
+                        int sum = 0;
+                        for (int i = 0; i < data.length; i += 100) { // sample some pixels
+                            sum += (data[i] & 0xFF);
+                        }
+                        int average = sum / (data.length / 100);
+                        long currentTime = System.currentTimeMillis();
+                        if (currentTime - lastBrightnessCheckTime > BRIGHTNESS_INTERVAL) {
+                            lastBrightnessCheckTime = currentTime;
+                            if (average < 60) { // very low light
+                                speak("Low light detected. Please turn on the flashlight.");
+                            }
+                        }
+                    }
+                }
+            });
+
         } catch (IOException | RuntimeException e) {
             Toast.makeText(this, "Camera unavailable", Toast.LENGTH_SHORT).show();
         }
@@ -127,6 +169,8 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     }
 
+
+
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -144,6 +188,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             }
         }
     }
+
 
     // Language toggle
     private void toggleLanguage() {
@@ -175,6 +220,8 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             Toast.makeText(this, "Camera permission denied", Toast.LENGTH_SHORT).show();
         }
     }
+
+
 
     @Override
     protected void onDestroy() {
