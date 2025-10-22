@@ -20,6 +20,13 @@ import android.graphics.ImageFormat;
 import android.hardware.Camera;
 import android.hardware.Camera.PreviewCallback;
 import java.util.Random;
+import org.tensorflow.lite.Interpreter;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.nio.MappedByteBuffer;
+import java.nio.channels.FileChannel;
+import android.content.res.AssetFileDescriptor;
+
 
 
 
@@ -43,6 +50,8 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     private final String[] fakeObjects = {"door", "wall", "person", "stairs", "chair"};
     private final Random random = new Random();
 
+    private Interpreter tflite;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -61,6 +70,14 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                 tts.setSpeechRate(1.0f);
             }
         });
+        try {
+            tflite = new Interpreter(loadModelFile());
+            Toast.makeText(this, "Model loaded successfully", Toast.LENGTH_SHORT).show();
+        } catch (IOException e) {
+            Toast.makeText(this, "Model loading failed", Toast.LENGTH_SHORT).show();
+            e.printStackTrace();
+        }
+
 
         // Camera permission
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
@@ -76,8 +93,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         });
         btnDetect.setOnClickListener(v -> {
             if (isCameraOn) {
-                String detected = fakeObjects[random.nextInt(fakeObjects.length)];
-                speak("Detected " + detected + " ahead");
+                speak("Model is ready — add real input here");
             } else {
                 speak("Camera not ready");
             }
@@ -115,33 +131,107 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         try {
             camera = Camera.open();
             camera.setDisplayOrientation(90); // portrait mode
+
+            Camera.Parameters params = camera.getParameters();
+
+// Enable continuous auto-focus if supported
+            if (params.getSupportedFocusModes().contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO)) {
+                params.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
+            } else if (params.getSupportedFocusModes().contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
+                params.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
+            }
+
+// Set highest possible preview size for better clarity
+            Camera.Size bestSize = null;
+            for (Camera.Size size : params.getSupportedPreviewSizes()) {
+                if (bestSize == null || (size.width * size.height > bestSize.width * bestSize.height)) {
+                    bestSize = size;
+                }
+            }
+            if (bestSize != null) {
+                params.setPreviewSize(bestSize.width, bestSize.height);
+            }
+
+            camera.setParameters(params);
             camera.setPreviewDisplay(holder);
             camera.startPreview();
-            camera.setDisplayOrientation(90);
             isCameraOn = true;
-            camera.setPreviewCallback(new PreviewCallback() {
-                @Override
-                public void onPreviewFrame(byte[] data, Camera camera) {
-                    Camera.Parameters parameters = camera.getParameters();
-                    if (parameters.getPreviewFormat() == ImageFormat.NV21) {
-                        int sum = 0;
-                        for (int i = 0; i < data.length; i += 100) { // sample some pixels
-                            sum += (data[i] & 0xFF);
-                        }
-                        int average = sum / (data.length / 100);
-                        long currentTime = System.currentTimeMillis();
-                        if (currentTime - lastBrightnessCheckTime > BRIGHTNESS_INTERVAL) {
-                            lastBrightnessCheckTime = currentTime;
-                            if (average < 60) { // very low light
-                                speak("Low light detected. Please turn on the flashlight.");
-                            }
-                        }
-                    }
-                }
-            });
+
+// Optional small delay before setting callback to stabilize focus
+            new android.os.Handler().postDelayed(() -> {
+                camera.setPreviewCallback(previewCallback);
+            }, 500);
+
 
         } catch (IOException | RuntimeException e) {
             Toast.makeText(this, "Camera unavailable", Toast.LENGTH_SHORT).show();
+        }
+    }
+    private final Camera.PreviewCallback previewCallback = new Camera.PreviewCallback() {
+        @Override
+        public void onPreviewFrame(byte[] data, Camera camera) {
+            // (your existing brightness + YOLO detection code here)
+            // --- Brightness Detection ---
+            int frameSum = 0;
+            int sampleCount = 0;
+
+// Sample every few pixels (not too dense for performance)
+            for (int i = 0; i < data.length; i += 500) {
+                frameSum += (data[i] & 0xFF);
+                sampleCount++;
+            }
+
+            int avgBrightness = frameSum / sampleCount;
+            long currentTime = System.currentTimeMillis();
+
+// Check brightness only every 3 seconds
+            if (currentTime - lastBrightnessCheckTime > BRIGHTNESS_INTERVAL) {
+                lastBrightnessCheckTime = currentTime;
+
+                if (avgBrightness < 60) {
+                    speak("Low light detected. Please turn on the flashlight.");
+                } else if (avgBrightness > 180) {
+                    speak("Bright light detected.");
+                }
+            }
+
+        }
+    };
+
+
+    private MappedByteBuffer loadModelFile() throws IOException {
+        AssetFileDescriptor fileDescriptor = this.getAssets().openFd("yolov5n-fp16.tflite");
+        FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
+        FileChannel fileChannel = inputStream.getChannel();
+        long startOffset = fileDescriptor.getStartOffset();
+        long declaredLength = fileDescriptor.getDeclaredLength();
+        return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
+    }
+
+    private void runObjectDetection(android.graphics.Bitmap bitmap) {
+        // Resize to model input size (YOLOv5n uses 640x640)
+        android.graphics.Bitmap resized = android.graphics.Bitmap.createScaledBitmap(bitmap, 640, 640, true);
+
+        int inputSize = 640;
+        int[] intValues = new int[inputSize * inputSize];
+        resized.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize);
+
+        float[][][][] input = new float[1][inputSize][inputSize][3];
+        for (int i = 0; i < intValues.length; ++i) {
+            int pixel = intValues[i];
+            input[0][i / inputSize][i % inputSize][0] = ((pixel >> 16) & 0xFF) / 255.0f;
+            input[0][i / inputSize][i % inputSize][1] = ((pixel >> 8) & 0xFF) / 255.0f;
+            input[0][i / inputSize][i % inputSize][2] = (pixel & 0xFF) / 255.0f;
+        }
+
+        // Output buffer (simplified for now)
+        float[][] output = new float[1][1000]; // adjust shape later
+
+        try {
+            tflite.run(input, output);
+            speak("Object detected"); // temporary feedback
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 
