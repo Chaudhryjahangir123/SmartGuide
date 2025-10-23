@@ -9,27 +9,20 @@ import android.hardware.Camera;
 import android.os.Bundle;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
+import android.util.Log;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.Button;
 import android.widget.Toast;
-import java.io.IOException;
-import java.util.ArrayList;
-import java.util.Locale;
-import android.graphics.ImageFormat;
-import android.hardware.Camera;
-import android.hardware.Camera.PreviewCallback;
-import java.util.Random;
-import org.tensorflow.lite.Interpreter;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
+import java.util.ArrayList;
+import java.util.Locale;
+import java.util.Random;
 import android.content.res.AssetFileDescriptor;
-
-
-
-
+import org.tensorflow.lite.Interpreter;
 
 public class MainActivity extends AppCompatActivity implements SurfaceHolder.Callback {
 
@@ -42,16 +35,16 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     private static final int CAMERA_PERMISSION_CODE = 100;
     private static final int VOICE_RECOGNITION_REQUEST = 200;
 
-    private long lastBrightnessCheckTime = 0;
-    private static final int BRIGHTNESS_INTERVAL = 3000; // check every 3 seconds
-
     private boolean isCameraOn = false;
     private boolean isEnglish = true;
-    private final String[] fakeObjects = {"door", "wall", "person", "stairs", "chair"};
-    private final Random random = new Random();
-
     private Interpreter tflite;
 
+    // Torch variables
+    private boolean torchOn = false;
+    private final int LOW_LIGHT_THRESHOLD = 70;
+    private final int BRIGHT_LIGHT_THRESHOLD = 120;
+    private final long BRIGHTNESS_INTERVAL = 3000; // 3 seconds
+    private long lastBrightnessCheckTime = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,13 +56,15 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         btnVoice = findViewById(R.id.btnVoice);
         btnLanguage = findViewById(R.id.btnLanguage);
 
-        // Initialize TTS
+        // Initialize Text-to-Speech
         tts = new TextToSpeech(this, status -> {
             if (status == TextToSpeech.SUCCESS) {
                 tts.setLanguage(Locale.ENGLISH);
                 tts.setSpeechRate(1.0f);
             }
         });
+
+        // Load TensorFlow Lite model
         try {
             tflite = new Interpreter(loadModelFile());
             Toast.makeText(this, "Model loaded successfully", Toast.LENGTH_SHORT).show();
@@ -78,49 +73,51 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             e.printStackTrace();
         }
 
-
-        // Camera permission
+        // Request camera permission
         if (checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA}, CAMERA_PERMISSION_CODE);
         } else {
             openCamera();
         }
 
-        // Detect button
+        // Button Listeners
         btnDetect.setOnClickListener(v -> {
-            if (isCameraOn) speak("Object ahead");
+            if (isCameraOn) speak("Model is ready — add real input here");
             else speak("Camera not ready");
         });
-        btnDetect.setOnClickListener(v -> {
-            if (isCameraOn) {
-                speak("Model is ready — add real input here");
-            } else {
-                speak("Camera not ready");
-            }
-        });
-        // Voice command button
-        btnVoice.setOnClickListener(v -> startVoiceRecognition());
 
-        // Language toggle button
+        btnVoice.setOnClickListener(v -> startVoiceRecognition());
         btnLanguage.setOnClickListener(v -> toggleLanguage());
     }
 
-    // Unified speak() that auto-translates when Urdu is active
+    /** 🔊 Speak Function (Supports Urdu + English) */
     private void speak(String message) {
         if (!isEnglish) {
-            if (message.equalsIgnoreCase("Object ahead"))
-                message = "سامنے رکاوٹ موجود ہے";
-            else if (message.equalsIgnoreCase("Navigation stopped"))
-                message = "نیویگیشن بند کر دی گئی ہے";
-            else if (message.equalsIgnoreCase("Command not recognized"))
-                message = "کمانڈ سمجھ میں نہیں آئی";
-            else if (message.equalsIgnoreCase("Camera not ready"))
-                message = "کیمرہ تیار نہیں ہے";
+            switch (message) {
+                case "Object ahead":
+                    message = "سامنے رکاوٹ موجود ہے";
+                    break;
+                case "Navigation stopped":
+                    message = "نیویگیشن بند کر دی گئی ہے";
+                    break;
+                case "Command not recognized":
+                    message = "کمانڈ سمجھ میں نہیں آئی";
+                    break;
+                case "Camera not ready":
+                    message = "کیمرہ تیار نہیں ہے";
+                    break;
+                case "Low light detected. Turning on flashlight.":
+                    message = "روشنی کم ہے، فلیش آن کیا جا رہا ہے";
+                    break;
+                case "Bright light detected. Turning off flashlight.":
+                    message = "روشنی زیادہ ہے، فلیش بند کیا جا رہا ہے";
+                    break;
+            }
         }
         tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, null);
     }
 
-    // Camera setup
+    /** 🎥 Camera Setup */
     private void openCamera() {
         surfaceHolder = cameraPreview.getHolder();
         surfaceHolder.addCallback(this);
@@ -134,14 +131,12 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
             Camera.Parameters params = camera.getParameters();
 
-// Enable continuous auto-focus if supported
+            // Enable continuous focus
             if (params.getSupportedFocusModes().contains(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO)) {
                 params.setFocusMode(Camera.Parameters.FOCUS_MODE_CONTINUOUS_VIDEO);
-            } else if (params.getSupportedFocusModes().contains(Camera.Parameters.FOCUS_MODE_AUTO)) {
-                params.setFocusMode(Camera.Parameters.FOCUS_MODE_AUTO);
             }
 
-// Set highest possible preview size for better clarity
+            // Choose best preview size
             Camera.Size bestSize = null;
             for (Camera.Size size : params.getSupportedPreviewSizes()) {
                 if (bestSize == null || (size.width * size.height > bestSize.width * bestSize.height)) {
@@ -157,48 +152,54 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             camera.startPreview();
             isCameraOn = true;
 
-// Optional small delay before setting callback to stabilize focus
-            new android.os.Handler().postDelayed(() -> {
-                camera.setPreviewCallback(previewCallback);
-            }, 500);
-
+            // Set brightness callback
+            new android.os.Handler().postDelayed(() -> camera.setPreviewCallback(previewCallback), 500);
 
         } catch (IOException | RuntimeException e) {
             Toast.makeText(this, "Camera unavailable", Toast.LENGTH_SHORT).show();
         }
     }
-    private final Camera.PreviewCallback previewCallback = new Camera.PreviewCallback() {
-        @Override
-        public void onPreviewFrame(byte[] data, Camera camera) {
-            // (your existing brightness + YOLO detection code here)
-            // --- Brightness Detection ---
-            int frameSum = 0;
-            int sampleCount = 0;
 
-// Sample every few pixels (not too dense for performance)
-            for (int i = 0; i < data.length; i += 500) {
-                frameSum += (data[i] & 0xFF);
-                sampleCount++;
+    /** 🔦 Brightness + Flashlight Control */
+    private final Camera.PreviewCallback previewCallback = (data, camera) -> {
+        int frameSum = 0;
+        int sampleCount = 0;
+
+        for (int i = 0; i < data.length; i += 500) {
+            frameSum += (data[i] & 0xFF);
+            sampleCount++;
+        }
+
+        int avgBrightness = frameSum / sampleCount;
+        long currentTime = System.currentTimeMillis();
+
+        if (currentTime - lastBrightnessCheckTime > BRIGHTNESS_INTERVAL) {
+            lastBrightnessCheckTime = currentTime;
+            Camera.Parameters params = camera.getParameters();
+
+            // Low light → turn ON torch
+            if (avgBrightness < LOW_LIGHT_THRESHOLD && !torchOn) {
+                speak("Low light detected. Turning on flashlight.");
+                params.setFlashMode(Camera.Parameters.FLASH_MODE_TORCH);
+                camera.setParameters(params);
+                torchOn = true;
             }
 
-            int avgBrightness = frameSum / sampleCount;
-            long currentTime = System.currentTimeMillis();
-
-// Check brightness only every 3 seconds
-            if (currentTime - lastBrightnessCheckTime > BRIGHTNESS_INTERVAL) {
-                lastBrightnessCheckTime = currentTime;
-
-                if (avgBrightness < 60) {
-                    speak("Low light detected. Please turn on the flashlight.");
-                } else if (avgBrightness > 180) {
-                    speak("Bright light detected.");
-                }
+            // Bright → turn OFF torch
+            else if (avgBrightness > BRIGHT_LIGHT_THRESHOLD && torchOn) {
+                speak("Bright light detected. Turning off flashlight.");
+                params.setFlashMode(Camera.Parameters.FLASH_MODE_OFF);
+                camera.setParameters(params);
+                camera.stopPreview();
+                camera.startPreview();
+                torchOn = false;
             }
 
+            Log.d("Brightness", "Avg: " + avgBrightness + " | Torch: " + torchOn);
         }
     };
 
-
+    /** 🧠 Load TensorFlow Model */
     private MappedByteBuffer loadModelFile() throws IOException {
         AssetFileDescriptor fileDescriptor = this.getAssets().openFd("yolov5n-fp16.tflite");
         FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
@@ -208,59 +209,22 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
     }
 
-    private void runObjectDetection(android.graphics.Bitmap bitmap) {
-        // Resize to model input size (YOLOv5n uses 640x640)
-        android.graphics.Bitmap resized = android.graphics.Bitmap.createScaledBitmap(bitmap, 640, 640, true);
-
-        int inputSize = 640;
-        int[] intValues = new int[inputSize * inputSize];
-        resized.getPixels(intValues, 0, inputSize, 0, 0, inputSize, inputSize);
-
-        float[][][][] input = new float[1][inputSize][inputSize][3];
-        for (int i = 0; i < intValues.length; ++i) {
-            int pixel = intValues[i];
-            input[0][i / inputSize][i % inputSize][0] = ((pixel >> 16) & 0xFF) / 255.0f;
-            input[0][i / inputSize][i % inputSize][1] = ((pixel >> 8) & 0xFF) / 255.0f;
-            input[0][i / inputSize][i % inputSize][2] = (pixel & 0xFF) / 255.0f;
-        }
-
-        // Output buffer (simplified for now)
-        float[][] output = new float[1][1000]; // adjust shape later
-
-        try {
-            tflite.run(input, output);
-            speak("Object detected"); // temporary feedback
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-    }
-
-    @Override public void surfaceChanged(@NonNull SurfaceHolder h, int f, int w, int he) { }
-    @Override public void surfaceDestroyed(@NonNull SurfaceHolder h) {
-        if (camera != null) {
-            camera.stopPreview();
-            camera.release();
-            camera = null;
-        }
-        isCameraOn = false;
-    }
-
-    // Voice recognition
+    /** 🎤 Voice Recognition */
     private void startVoiceRecognition() {
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-US");
-        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Say Detect or Stop");
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, isEnglish ? "en-US" : "ur-PK");
+        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, isEnglish ? "Say Detect or Stop" : "کمانڈ بولیں: ڈیٹیکٹ یا سٹاپ");
+
         try {
             startActivityForResult(intent, VOICE_RECOGNITION_REQUEST);
         } catch (Exception e) {
-            speak(isEnglish ? "Voice recognition not supported on this device"
-                    : "وائس کمانڈ اس ڈیوائس پر دستیاب نہیں ہے");
+            speak(isEnglish ? "Voice recognition not supported on this device" :
+                    "وائس کمانڈ اس ڈیوائس پر دستیاب نہیں ہے");
         }
     }
 
-
-
+    /** 🎤 Handle Voice Commands */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
@@ -268,9 +232,9 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
             if (results != null && !results.isEmpty()) {
                 String command = results.get(0).toLowerCase(Locale.ROOT);
-                if (command.contains("detect")) {
+                if (command.contains("detect") || command.contains("ڈیٹیکٹ")) {
                     speak("Object ahead");
-                } else if (command.contains("stop")) {
+                } else if (command.contains("stop") || command.contains("سٹاپ")) {
                     speak("Navigation stopped");
                 } else {
                     speak("Command not recognized");
@@ -279,8 +243,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     }
 
-
-    // Language toggle
+    /** 🌐 Language Toggle */
     private void toggleLanguage() {
         if (isEnglish) {
             int result = tts.setLanguage(new Locale("ur", "PK"));
@@ -299,6 +262,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         isEnglish = !isEnglish;
     }
 
+    /** ⚙️ Permissions */
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
                                            @NonNull int[] grantResults) {
@@ -311,8 +275,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     }
 
-
-
+    /** 🧹 Cleanup */
     @Override
     protected void onDestroy() {
         super.onDestroy();
@@ -324,5 +287,15 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             camera.stopPreview();
             camera.release();
         }
+    }
+
+    @Override public void surfaceChanged(@NonNull SurfaceHolder h, int f, int w, int he) {}
+    @Override public void surfaceDestroyed(@NonNull SurfaceHolder h) {
+        if (camera != null) {
+            camera.stopPreview();
+            camera.release();
+            camera = null;
+        }
+        isCameraOn = false;
     }
 }
