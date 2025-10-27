@@ -2,6 +2,7 @@ package com.example.smartguiderepo;
 
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -14,6 +15,7 @@ import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.Button;
 import android.widget.Toast;
+
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.nio.MappedByteBuffer;
@@ -21,6 +23,7 @@ import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Locale;
 import java.util.Random;
+
 import android.content.res.AssetFileDescriptor;
 import org.tensorflow.lite.Interpreter;
 
@@ -37,9 +40,10 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
 
     private boolean isCameraOn = false;
     private boolean isEnglish = true;
-    private Interpreter tflite;
 
-    // Torch variables
+    private Interpreter tflite; // TensorFlow Lite Interpreter
+
+    // Torch / brightness variables
     private boolean torchOn = false;
     private final int LOW_LIGHT_THRESHOLD = 70;
     private final int BRIGHT_LIGHT_THRESHOLD = 120;
@@ -80,17 +84,19 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             openCamera();
         }
 
-        // Button Listeners
+        // Button listeners
         btnDetect.setOnClickListener(v -> {
-            if (isCameraOn) speak("Model is ready — add real input here");
-            else speak("Camera not ready");
+            if (isCameraOn)
+                speak("Model is ready — add real input here");
+            else
+                speak("Camera not ready");
         });
 
         btnVoice.setOnClickListener(v -> startVoiceRecognition());
         btnLanguage.setOnClickListener(v -> toggleLanguage());
     }
 
-    /** 🔊 Speak Function (Supports Urdu + English) */
+    /** 🔊 Speak function supporting Urdu + English */
     private void speak(String message) {
         if (!isEnglish) {
             switch (message) {
@@ -117,7 +123,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         tts.speak(message, TextToSpeech.QUEUE_FLUSH, null, null);
     }
 
-    /** 🎥 Camera Setup */
+    /** 🎥 Camera setup */
     private void openCamera() {
         surfaceHolder = cameraPreview.getHolder();
         surfaceHolder.addCallback(this);
@@ -127,8 +133,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
     public void surfaceCreated(@NonNull SurfaceHolder holder) {
         try {
             camera = Camera.open();
-            camera.setDisplayOrientation(90); // portrait mode
-
+            camera.setDisplayOrientation(90); // Portrait mode
             Camera.Parameters params = camera.getParameters();
 
             // Enable continuous focus
@@ -152,7 +157,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
             camera.startPreview();
             isCameraOn = true;
 
-            // Set brightness callback
+            // Set brightness callback after slight delay
             new android.os.Handler().postDelayed(() -> camera.setPreviewCallback(previewCallback), 500);
 
         } catch (IOException | RuntimeException e) {
@@ -160,7 +165,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     }
 
-    /** 🔦 Brightness + Flashlight Control */
+    /** 🔦 Brightness + Flashlight control */
     private final Camera.PreviewCallback previewCallback = (data, camera) -> {
         int frameSum = 0;
         int sampleCount = 0;
@@ -184,7 +189,6 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
                 camera.setParameters(params);
                 torchOn = true;
             }
-
             // Bright → turn OFF torch
             else if (avgBrightness > BRIGHT_LIGHT_THRESHOLD && torchOn) {
                 speak("Bright light detected. Turning off flashlight.");
@@ -199,7 +203,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     };
 
-    /** 🧠 Load TensorFlow Model */
+    /** 🧠 Load TensorFlow Lite model from assets */
     private MappedByteBuffer loadModelFile() throws IOException {
         AssetFileDescriptor fileDescriptor = this.getAssets().openFd("yolov5n-fp16.tflite");
         FileInputStream inputStream = new FileInputStream(fileDescriptor.getFileDescriptor());
@@ -209,25 +213,24 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         return fileChannel.map(FileChannel.MapMode.READ_ONLY, startOffset, declaredLength);
     }
 
-    /** 🎤 Voice Recognition */
+    /** 🎤 Voice recognition */
     private void startVoiceRecognition() {
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, isEnglish ? "en-US" : "ur-PK");
         intent.putExtra(RecognizerIntent.EXTRA_PROMPT, isEnglish ? "Say Detect or Stop" : "کمانڈ بولیں: ڈیٹیکٹ یا سٹاپ");
-
         try {
             startActivityForResult(intent, VOICE_RECOGNITION_REQUEST);
         } catch (Exception e) {
-            speak(isEnglish ? "Voice recognition not supported on this device" :
-                    "وائس کمانڈ اس ڈیوائس پر دستیاب نہیں ہے");
+            speak(isEnglish ? "Voice recognition not supported on this device" : "وائس کمانڈ اس ڈیوائس پر دستیاب نہیں ہے");
         }
     }
 
-    /** 🎤 Handle Voice Commands */
+    /** 🎤 Handle voice commands */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+
         if (requestCode == VOICE_RECOGNITION_REQUEST && resultCode == RESULT_OK && data != null) {
             ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
             if (results != null && !results.isEmpty()) {
@@ -243,7 +246,7 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     }
 
-    /** 🌐 Language Toggle */
+    /** 🌐 Language toggle */
     private void toggleLanguage() {
         if (isEnglish) {
             int result = tts.setLanguage(new Locale("ur", "PK"));
@@ -262,13 +265,11 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         isEnglish = !isEnglish;
     }
 
-    /** ⚙️ Permissions */
+    /** ⚙️ Permissions result */
     @Override
-    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions,
-                                           @NonNull int[] grantResults) {
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == CAMERA_PERMISSION_CODE &&
-                grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        if (requestCode == CAMERA_PERMISSION_CODE && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
             openCamera();
         } else {
             Toast.makeText(this, "Camera permission denied", Toast.LENGTH_SHORT).show();
@@ -289,8 +290,11 @@ public class MainActivity extends AppCompatActivity implements SurfaceHolder.Cal
         }
     }
 
-    @Override public void surfaceChanged(@NonNull SurfaceHolder h, int f, int w, int he) {}
-    @Override public void surfaceDestroyed(@NonNull SurfaceHolder h) {
+    @Override
+    public void surfaceChanged(@NonNull SurfaceHolder h, int f, int w, int he) {}
+
+    @Override
+    public void surfaceDestroyed(@NonNull SurfaceHolder h) {
         if (camera != null) {
             camera.stopPreview();
             camera.release();

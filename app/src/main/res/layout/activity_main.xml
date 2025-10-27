@@ -5,11 +5,21 @@
     android:layout_height="match_parent"
     tools:context=".MainActivity">
 
+    <!-- Camera Preview -->
     <SurfaceView
         android:id="@+id/cameraPreview"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- Overlay for bounding boxes -->
+    <com.example.smartguiderepo.OverlayView
+        android:id="@+id/overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+
+
+    <!-- Detect Button -->
     <Button
         android:id="@+id/btnDetect"
         android:text="Detect"
@@ -18,6 +28,7 @@
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="90dp" />
 
+    <!-- Voice Button -->
     <Button
         android:id="@+id/btnVoice"
         android:text="🎤 Voice"
@@ -26,6 +37,7 @@
         android:layout_gravity="bottom|center_horizontal"
         android:layout_marginBottom="20dp" />
 
+    <!-- Language Toggle Button -->
     <Button
         android:id="@+id/btnLanguage"
         android:text="Switch to Urdu"
@@ -33,4 +45,5 @@
         android:layout_height="wrap_content"
         android:layout_gravity="top|end"
         android:layout_margin="16dp" />
+
 </FrameLayout>
