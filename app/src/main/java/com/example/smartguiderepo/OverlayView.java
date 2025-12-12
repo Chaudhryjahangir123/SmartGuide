@@ -4,56 +4,59 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
+import android.graphics.RectF;
+import android.util.AttributeSet;
 import android.view.View;
+import java.util.List;
 
 public class OverlayView extends View {
 
-    private float[][][] detections; // YOLO output: [1][N][7]
+    private List<YoloDetector.BoundingBox> boxes;
     private Paint boxPaint;
+    private Paint textPaint;
 
-    public OverlayView(Context context) {
-        super(context);
-        init();
-    }
-
-    public OverlayView(Context context, android.util.AttributeSet attrs) {
+    public OverlayView(Context context, AttributeSet attrs) {
         super(context, attrs);
         init();
     }
 
     private void init() {
         boxPaint = new Paint();
-        boxPaint.setColor(Color.RED);
+        boxPaint.setColor(Color.GREEN);
         boxPaint.setStyle(Paint.Style.STROKE);
-        boxPaint.setStrokeWidth(5f);
+        boxPaint.setStrokeWidth(8f);
+
+        textPaint = new Paint();
+        textPaint.setColor(Color.WHITE);
+        textPaint.setTextSize(50f);
+        textPaint.setStyle(Paint.Style.FILL);
     }
 
-    /** Set detections from YOLO and redraw */
-    public void setDetections(float[][][] detections) {
-        this.detections = detections;
-        invalidate();
+    public void setDetections(List<YoloDetector.BoundingBox> boxes) {
+        this.boxes = boxes;
+        invalidate(); // Force redraw
     }
 
     @Override
     protected void onDraw(Canvas canvas) {
         super.onDraw(canvas);
-
-        if (detections == null) return;
+        if (boxes == null) return;
 
         int width = getWidth();
         int height = getHeight();
 
-        for (int i = 0; i < detections[0].length; i++) {
-            float[] det = detections[0][i];
-            float confidence = det[4]; // confidence score
-            if (confidence > 0.5) { // only draw confident boxes
-                float x = det[0] * width;
-                float y = det[1] * height;
-                float w = det[2] * width;
-                float h = det[3] * height;
+        for (YoloDetector.BoundingBox box : boxes) {
+            // Convert normalized coordinates (0..1) to screen pixels
+            float left = box.box.left * width;
+            float top = box.box.top * height;
+            float right = box.box.right * width;
+            float bottom = box.box.bottom * height;
 
-                canvas.drawRect(x, y, x + w, y + h, boxPaint);
-            }
+            // Draw Box
+            canvas.drawRect(left, top, right, bottom, boxPaint);
+
+            // Draw Label
+            canvas.drawText(box.label + " " + (int)(box.score*100) + "%", left, top - 10, textPaint);
         }
     }
 }
