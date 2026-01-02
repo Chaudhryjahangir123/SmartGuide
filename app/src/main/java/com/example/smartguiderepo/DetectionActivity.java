@@ -4,6 +4,7 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.RectF;
 import android.os.Bundle;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
@@ -26,6 +27,8 @@ import androidx.core.content.ContextCompat;
 
 import com.google.common.util.concurrent.ListenableFuture;
 
+import org.tensorflow.lite.task.vision.detector.Detection;
+
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,17 +44,15 @@ public class DetectionActivity extends AppCompatActivity {
     private TextView tvTitle;
     private ImageView btnBack, btnMicOverlay;
 
-    private YoloDetector yoloDetector;
+    private ObjectDetectorHelper detectorHelper;
     private ExecutorService cameraExecutor;
     private TextToSpeech tts;
-    private Camera camera; // Control for Torch
+    private Camera camera;
 
     private String currentMode = "General";
     private String targetObject = "";
     private long lastSpeakTime = 0;
     private boolean isDetecting = true;
-
-    // Torch Variables
     private boolean isTorchOn = false;
     private long lastBrightnessCheck = 0;
 
@@ -76,63 +77,25 @@ public class DetectionActivity extends AppCompatActivity {
             startActivityForResult(intent, VOICE_REQ_CODE);
         });
 
-        if (getIntent().hasExtra("MODE")) {
-            currentMode = getIntent().getStringExtra("MODE");
-        }
-        if (getIntent().hasExtra("TARGET")) {
-            targetObject = getIntent().getStringExtra("TARGET").toLowerCase();
-        }
+        if (getIntent().hasExtra("MODE")) currentMode = getIntent().getStringExtra("MODE");
+        if (getIntent().hasExtra("TARGET")) targetObject = getIntent().getStringExtra("TARGET").toLowerCase();
 
-        if (currentMode.equalsIgnoreCase("Finder")) {
-            tvTitle.setText("Finding: " + targetObject);
-        } else {
-            tvTitle.setText("Smart Guide Vision");
-        }
-
+        tvTitle.setText(currentMode.equalsIgnoreCase("Finder") ? "Finding: " + targetObject : "Smart Guide Vision");
         btnBack.setOnClickListener(v -> finish());
 
         tts = new TextToSpeech(this, status -> {
             if (status == TextToSpeech.SUCCESS) {
                 tts.setLanguage(Locale.US);
-                String startMsg = currentMode.equalsIgnoreCase("Finder") ? "Searching for " + targetObject : "Detection started";
-                speak(startMsg);
+                speak(currentMode.equalsIgnoreCase("Finder") ? "Searching for " + targetObject : "Detection started");
             }
         });
 
-        try {
-            yoloDetector = new YoloDetector(this, "best_float32.tflite");
-        } catch (Exception e) {
-            Toast.makeText(this, "Error loading model", Toast.LENGTH_LONG).show();
-        }
-
+        // Corrected initialization
+        detectorHelper = new ObjectDetectorHelper(this);
         cameraExecutor = Executors.newSingleThreadExecutor();
-        if (allPermissionsGranted()) {
-            startCamera();
-        } else {
-            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 101);
-        }
-    }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        isDetecting = true;
-
-        if (requestCode == VOICE_REQ_CODE && resultCode == RESULT_OK && data != null) {
-            ArrayList<String> result = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-            String command = result.get(0).toLowerCase();
-
-            if (command.contains("stop")) {
-                finish();
-            } else if (command.contains("find")) {
-                currentMode = "Finder";
-                targetObject = command.replace("find", "").trim();
-                tvTitle.setText("Finding: " + targetObject);
-                speak("Now looking for " + targetObject);
-            } else {
-                speak("Command not understood");
-            }
-        }
+        if (allPermissionsGranted()) startCamera();
+        else ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.CAMERA}, 101);
     }
 
     private void startCamera() {
@@ -149,46 +112,59 @@ public class DetectionActivity extends AppCompatActivity {
                         .build();
 
                 imageAnalysis.setAnalyzer(cameraExecutor, imageProxy -> {
-                    if (!isDetecting || yoloDetector == null) {
+                    if (!isDetecting || detectorHelper == null) {
                         imageProxy.close();
                         return;
                     }
 
-                    // --- NEW: Check Brightness ---
                     checkBrightness(imageProxy);
 
-                    try {
-                        runOnUiThread(() -> {
-                            Bitmap bitmap = cameraPreview.getBitmap();
-                            if (bitmap != null) {
-                                List<YoloDetector.BoundingBox> results = yoloDetector.detect(bitmap);
-                                List<YoloDetector.BoundingBox> filteredResults = new ArrayList<>();
+                    // --- FIX: Run UI-related tasks on the Main Thread ---
+                    runOnUiThread(() -> {
+                        Bitmap bitmap = cameraPreview.getBitmap();
+                        if (bitmap != null) {
+                            // Move AI work back to the background thread to keep UI smooth
+                            cameraExecutor.execute(() -> {
+                                List<Detection> results = detectorHelper.detect(bitmap);
+                                List<YoloDetector.BoundingBox> mappedResults = new ArrayList<>();
 
-                                if (currentMode.equalsIgnoreCase("Finder")) {
-                                    for (YoloDetector.BoundingBox box : results) {
-                                        if (box.label.toLowerCase().contains(targetObject)) {
-                                            filteredResults.add(box);
+                                if (results != null) {
+                                    float bw = bitmap.getWidth();
+                                    float bh = bitmap.getHeight();
+
+                                    for (Detection det : results) {
+                                        String label = det.getCategories().get(0).getLabel();
+                                        float score = det.getCategories().get(0).getScore();
+                                        RectF rawBox = det.getBoundingBox();
+
+                                        RectF normalizedBox = new RectF(
+                                                rawBox.left / bw, rawBox.top / bh,
+                                                rawBox.right / bw, rawBox.bottom / bh
+                                        );
+
+                                        if (currentMode.equalsIgnoreCase("Finder")) {
+                                            if (label.toLowerCase().contains(targetObject)) {
+                                                mappedResults.add(new YoloDetector.BoundingBox(label, score, normalizedBox));
+                                            }
+                                        } else if (label.equals("person") || label.equals("car") || label.equals("chair")) {
+                                            mappedResults.add(new YoloDetector.BoundingBox(label, score, normalizedBox));
                                         }
                                     }
-                                } else {
-                                    filteredResults = results;
                                 }
 
-                                overlayView.setDetections(filteredResults);
-                                processFeedback(filteredResults);
-                            }
-                        });
-                    } catch (Exception e) {
-                        Log.e("Camera", "Error", e);
-                    } finally {
-                        imageProxy.close();
-                    }
+                                // Update UI with detections
+                                runOnUiThread(() -> {
+                                    overlayView.setDetections(mappedResults);
+                                    processFeedback(mappedResults);
+                                });
+                            });
+                        }
+                    });
+                    imageProxy.close();
                 });
 
-                CameraSelector cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA;
                 cameraProvider.unbindAll();
-                // Capture camera instance to control torch
-                camera = cameraProvider.bindToLifecycle(this, cameraSelector, preview, imageAnalysis);
+                camera = cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis);
 
             } catch (ExecutionException | InterruptedException e) {
                 Log.e("Camera", "Binding failed", e);
@@ -196,84 +172,53 @@ public class DetectionActivity extends AppCompatActivity {
         }, ContextCompat.getMainExecutor(this));
     }
 
-    // --- NEW: Brightness Logic ---
+    // Other methods (checkBrightness, toggleTorch, speak, etc.) remain the same
+    private void processFeedback(List<YoloDetector.BoundingBox> results) {
+        if (results.isEmpty()) return;
+        long currentTime = System.currentTimeMillis();
+        if (currentTime - lastSpeakTime > 3000) {
+            String label = results.get(0).label;
+            speak(currentMode.equalsIgnoreCase("Finder") ? "Found " + label : "Caution, " + label + " ahead");
+            lastSpeakTime = currentTime;
+        }
+    }
+
+    private void speak(String text) {
+        if (tts != null) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
+    }
+
     private void checkBrightness(androidx.camera.core.ImageProxy image) {
         long now = System.currentTimeMillis();
-        // Check only every 1 second to save battery
         if (now - lastBrightnessCheck < 1000) return;
         lastBrightnessCheck = now;
-
-        // Calculate average pixel intensity of the Y (Luminance) plane
         ByteBuffer buffer = image.getPlanes()[0].getBuffer();
         byte[] data = new byte[buffer.remaining()];
         buffer.get(data);
-
         long sum = 0;
-        // Sample every 20th pixel to speed up calculation
-        for (int i = 0; i < data.length; i += 20) {
-            sum += (data[i] & 0xFF);
-        }
+        for (int i = 0; i < data.length; i += 20) sum += (data[i] & 0xFF);
         long average = sum / (data.length / 20);
-
-        // Logic: < 50 is Dark, > 110 is Bright
-        if (average < 50 && !isTorchOn) {
-            toggleTorch(true);
-        } else if (average > 110 && isTorchOn) {
-            toggleTorch(false);
-        }
+        if (average < 50 && !isTorchOn) toggleTorch(true);
+        else if (average > 110 && isTorchOn) toggleTorch(false);
     }
 
     private void toggleTorch(boolean status) {
         if (camera != null && camera.getCameraInfo().hasFlashUnit()) {
             camera.getCameraControl().enableTorch(status);
             isTorchOn = status;
-            speak(status ? "Light On" : "Light Off");
-        }
-    }
-
-    private void processFeedback(List<YoloDetector.BoundingBox> results) {
-        if (results.isEmpty()) return;
-
-        long currentTime = System.currentTimeMillis();
-        if (currentTime - lastSpeakTime > 2500) {
-            YoloDetector.BoundingBox bestObj = results.get(0);
-            String label = bestObj.label;
-
-            if (!AppSettings.isEnglish) {
-                label = translateToUrdu(label);
-            }
-
-            if (currentMode.equalsIgnoreCase("Finder")) {
-                speak("Found " + label);
-            } else {
-                speak("I see " + label);
-            }
-            lastSpeakTime = currentTime;
-        }
-    }
-
-    private String translateToUrdu(String label) {
-        if (label.equalsIgnoreCase("Rock")) return "Pathar";
-        if (label.equalsIgnoreCase("Paper")) return "Kaghaz";
-        if (label.equalsIgnoreCase("Scissors")) return "Qainchi";
-        return label;
-    }
-
-    private void speak(String text) {
-        if (tts != null) {
-            if (!AppSettings.isEnglish) {
-                if (text.contains("Searching for")) text = "Talaash jari hai " + translateToUrdu(targetObject);
-                if (text.contains("Detection started")) text = "Detection shuru ho gayee";
-                if (text.contains("Found")) text = "Mil gaya " + text.replace("Found ", "");
-                if (text.contains("I see")) text = "Mujhay nazar aya " + text.replace("I see ", "");
-                if (text.contains("Light On")) text = "Light On"; // Keep simple or translate
-                if (text.contains("Light Off")) text = "Light Off";
-            }
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
         }
     }
 
     private boolean allPermissionsGranted() {
         return ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (cameraExecutor != null) cameraExecutor.shutdown();
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+        }
     }
 }

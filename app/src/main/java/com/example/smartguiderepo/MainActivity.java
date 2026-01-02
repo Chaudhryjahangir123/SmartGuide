@@ -68,7 +68,7 @@ public class MainActivity extends AppCompatActivity {
 
         try {
             // Ensure filename matches exactly!
-            yoloDetector = new YoloDetector(this, "best_float32.tflite");
+            yoloDetector = new YoloDetector(this, "detect.tflite");
         } catch (IOException e) {
             Toast.makeText(this, "Model Load Failed", Toast.LENGTH_LONG).show();
         }
