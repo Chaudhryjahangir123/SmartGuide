@@ -1,13 +1,15 @@
 package com.example.smartguiderepo;
 
+import android.content.Context;
 import android.content.Intent;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
-import android.widget.LinearLayout; // Updated Import
+import android.widget.LinearLayout;
 import android.widget.RelativeLayout;
-import android.widget.TextView;
-import android.widget.Toast;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import java.util.ArrayList;
@@ -17,75 +19,94 @@ public class HomeActivity extends AppCompatActivity {
 
     private static final int VOICE_REQ = 101;
     private TextToSpeech tts;
+    private Vibrator vibrator;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
 
-        // UI Element Initialization
-        RelativeLayout btnMic = findViewById(R.id.btnMic);
+        vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
 
-        // FIXED: Changed from ImageView to LinearLayout to match your new XML
+        RelativeLayout btnMic = findViewById(R.id.btnMic);
         LinearLayout btnHome = findViewById(R.id.btnHome);
         LinearLayout btnCamera = findViewById(R.id.btnCamera);
         LinearLayout btnFind = findViewById(R.id.btnFind);
         LinearLayout btnLanguage = findViewById(R.id.btnLanguage);
 
-        // Initialize TTS
         tts = new TextToSpeech(this, status -> {
             if (status == TextToSpeech.SUCCESS) {
-                tts.setLanguage(Locale.US);
+                // Initial setup
+                if (AppSettings.isEnglish) tts.setLanguage(Locale.US);
+                else tts.setLanguage(new Locale("ur", "PK"));
             }
         });
 
-        // 1. Home Button (Already on Home, so maybe just provide feedback)
         btnHome.setOnClickListener(v -> {
-            speak("You are already on the Home screen");
+            triggerShortVibration();
+            speak("You are already on the Home screen", "آپ پہلے ہی ہوم اسکرین پر ہیں");
         });
 
-        // 2. Camera Button Logic
         btnCamera.setOnClickListener(v -> {
+            triggerShortVibration();
             Intent intent = new Intent(HomeActivity.this, DetectionActivity.class);
             intent.putExtra("MODE", "General");
             startActivity(intent);
         });
 
-        // 3. Find/Search Button Logic
         btnFind.setOnClickListener(v -> {
+            triggerShortVibration();
             Intent intent = new Intent(HomeActivity.this, DetectionActivity.class);
             intent.putExtra("MODE", "Finder");
             startActivity(intent);
         });
 
-        // 4. Language Button Logic
         btnLanguage.setOnClickListener(v -> {
+            triggerShortVibration();
             AppSettings.isEnglish = !AppSettings.isEnglish;
-
             if (AppSettings.isEnglish) {
-                tts.setLanguage(Locale.US);
-                speak("English Selected");
-                Toast.makeText(this, "English Selected", Toast.LENGTH_SHORT).show();
+                speak("English Selected", "English Selected");
             } else {
-                speak("اردو منتخب کی گئی ہے");
-                Toast.makeText(this, "Urdu Selected", Toast.LENGTH_SHORT).show();
+                speak("Urdu Selected", "اردو منتخب کی گئی ہے");
             }
         });
 
         btnMic.setOnClickListener(v -> startVoice());
     }
 
-    private void speak(String text) {
+    private void triggerShortVibration() {
+        if (vibrator != null && vibrator.hasVibrator()) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE));
+            } else {
+                vibrator.vibrate(100);
+            }
+        }
+    }
+
+    // UPDATED: Forces language check every time it speaks
+    private void speak(String englishText, String urduText) {
         if (tts != null) {
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null);
+            if (AppSettings.isEnglish) {
+                tts.setLanguage(Locale.US);
+                tts.speak(englishText, TextToSpeech.QUEUE_FLUSH, null, null);
+            } else {
+                tts.setLanguage(new Locale("ur", "PK"));
+                tts.speak(urduText, TextToSpeech.QUEUE_FLUSH, null, null);
+            }
         }
     }
 
     private void startVoice() {
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, AppSettings.isEnglish ? "en-US" : "ur-PK");
-        startActivityForResult(intent, VOICE_REQ);
+        triggerShortVibration();
+        speak("What do you want to find?", "آپ کیا تلاش کرنا چاہتے ہیں؟");
+
+        findViewById(android.R.id.content).postDelayed(() -> {
+            Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+            intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, AppSettings.isEnglish ? "en-US" : "ur-PK");
+            startActivityForResult(intent, VOICE_REQ);
+        }, 1800);
     }
 
     @Override
@@ -100,7 +121,7 @@ public class HomeActivity extends AppCompatActivity {
             } else if (command.contains("find") || command.contains("talaash")) {
                 Intent intent = new Intent(this, DetectionActivity.class);
                 intent.putExtra("MODE", "Finder");
-                String target = command.replace("find", "").replace("talaash karein", "").trim();
+                String target = command.replace("find", "").replace("talaash", "").replace("karein", "").trim();
                 intent.putExtra("TARGET", target);
                 startActivity(intent);
             }
