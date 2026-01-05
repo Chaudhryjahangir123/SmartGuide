@@ -2,15 +2,34 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#0D1F32"> <TextView
-    android:id="@+id/tvLogo"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:layout_centerInParent="true"
-    android:text="Smart Guide"
-    android:textColor="#00E5FF"
-    android:textSize="40sp"
-    android:textStyle="bold"
-    android:fontFamily="sans-serif-black"/>
+    android:background="#0D1F32">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_centerInParent="true"
+        android:gravity="center"
+        android:orientation="vertical">
+
+        <ImageView
+            android:id="@+id/ivLogo"
+            android:layout_width="400dp"
+            android:layout_height="400dp"
+            android:layout_marginBottom="16dp"
+            android:src="@drawable/smart_guide_logo"
+            android:scaleType="fitCenter"
+            android:contentDescription="Smart Guide Logo" />
+
+<!--        <TextView-->
+<!--            android:id="@+id/tvLogoText"-->
+<!--            android:layout_width="wrap_content"-->
+<!--            android:layout_height="wrap_content"-->
+<!--            android:fontFamily="sans-serif-black"-->
+<!--            android:text="Smart Guide"-->
+<!--            android:textColor="#A68B55"-->
+<!--            android:textSize="45sp"-->
+<!--            android:textStyle="bold" />-->
+
+    </LinearLayout>
 
 </RelativeLayout>

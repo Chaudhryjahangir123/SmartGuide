@@ -16,7 +16,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="60dp"
-        android:background="#00ACC1"
+        android:background="#0A2433"
         android:gravity="center_vertical"
         android:padding="10dp"
         android:orientation="horizontal">
@@ -24,7 +24,7 @@
         <ImageView
             android:id="@+id/btnBack"
             android:layout_width="30dp"
-            android:layout_height="30dp"
+            android:layout_height="50dp"
             android:src="@drawable/ic_back_arrow"
             android:contentDescription="Back"
             android:clickable="true"
@@ -35,7 +35,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:gravity="center"
-            android:text="Smart Guide Vision"
+            android:text="INDOOR"
             android:textColor="#FFFFFF"
             android:textSize="20sp"
             android:textStyle="bold"/>
@@ -43,11 +43,12 @@
 
     <ImageView
         android:id="@+id/btnMicOverlay"
-        android:layout_width="80dp"
-        android:layout_height="80dp"
+        android:layout_width="110dp"
+        android:layout_height="110dp"
         android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="30dp"
-        android:src="@drawable/ic_mic_glow_blue"
+        android:layout_marginBottom="50dp"
+        android:src="@drawable/mic_glow_background"
+        android:scaleType="fitCenter"
         android:contentDescription="Active Microphone"/>
 
 </FrameLayout>

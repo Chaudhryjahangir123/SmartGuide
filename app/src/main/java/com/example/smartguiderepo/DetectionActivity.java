@@ -80,7 +80,7 @@ public class DetectionActivity extends AppCompatActivity {
         if (getIntent().hasExtra("MODE")) currentMode = getIntent().getStringExtra("MODE");
         if (getIntent().hasExtra("TARGET")) targetObject = getIntent().getStringExtra("TARGET").toLowerCase();
 
-        tvTitle.setText(currentMode.equalsIgnoreCase("Finder") ? "Finding: " + targetObject : "Smart Guide Vision");
+        tvTitle.setText(currentMode.equalsIgnoreCase("Finder") ? "OBJECT FINDER " + targetObject : "INDOOR");
         btnBack.setOnClickListener(v -> finish());
 
         tts = new TextToSpeech(this, status -> {

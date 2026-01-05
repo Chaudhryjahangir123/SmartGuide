@@ -4,7 +4,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.speech.RecognizerIntent;
 import android.speech.tts.TextToSpeech;
-import android.widget.ImageView;
+import android.widget.LinearLayout; // Updated Import
 import android.widget.RelativeLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -16,65 +16,63 @@ import java.util.Locale;
 public class HomeActivity extends AppCompatActivity {
 
     private static final int VOICE_REQ = 101;
-    private TextToSpeech tts; // Added TTS
+    private TextToSpeech tts;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_home);
 
+        // UI Element Initialization
         RelativeLayout btnMic = findViewById(R.id.btnMic);
-        ImageView btnCamera = findViewById(R.id.btnCamera);
-        ImageView btnFind = findViewById(R.id.btnFind);
-        ImageView btnLanguage = findViewById(R.id.btnLanguage);
 
-        // 1. Initialize TTS
+        // FIXED: Changed from ImageView to LinearLayout to match your new XML
+        LinearLayout btnHome = findViewById(R.id.btnHome);
+        LinearLayout btnCamera = findViewById(R.id.btnCamera);
+        LinearLayout btnFind = findViewById(R.id.btnFind);
+        LinearLayout btnLanguage = findViewById(R.id.btnLanguage);
+
+        // Initialize TTS
         tts = new TextToSpeech(this, status -> {
             if (status == TextToSpeech.SUCCESS) {
                 tts.setLanguage(Locale.US);
             }
         });
 
-        // 2. Language Button Logic (The Fix)
-        btnLanguage.setOnClickListener(v -> {
-            // Toggle Global Setting
-            AppSettings.isEnglish = !AppSettings.isEnglish;
-
-            if (AppSettings.isEnglish) {
-                // Switch to English
-                tts.setLanguage(Locale.US);
-                speak("English Selected");
-                Toast.makeText(this, "English Selected", Toast.LENGTH_SHORT).show();
-                btnLanguage.setImageAlpha(255); // Full Brightness
-
-                // Optional: Update UI Text
-                // tvMicLabel.setText("Tap to Speak");
-            } else {
-                // Switch to Urdu
-                // Note: Android TTS might fall back to default if Urdu isn't installed.
-                // We send the Urdu text, and if the engine supports it, it speaks.
-                speak("اردو منتخب کی گئی ہے"); // "Urdu Muntakhib Ki Gayi Hai"
-                Toast.makeText(this, "Urdu Selected", Toast.LENGTH_SHORT).show();
-                btnLanguage.setImageAlpha(128); // Dimmed to show difference
-
-                // Optional: Update UI Text
-                // tvMicLabel.setText("بولنے کے لیے ٹیپ کریں");
-            }
+        // 1. Home Button (Already on Home, so maybe just provide feedback)
+        btnHome.setOnClickListener(v -> {
+            speak("You are already on the Home screen");
         });
 
-        btnMic.setOnClickListener(v -> startVoice());
-
+        // 2. Camera Button Logic
         btnCamera.setOnClickListener(v -> {
             Intent intent = new Intent(HomeActivity.this, DetectionActivity.class);
             intent.putExtra("MODE", "General");
             startActivity(intent);
         });
 
+        // 3. Find/Search Button Logic
         btnFind.setOnClickListener(v -> {
             Intent intent = new Intent(HomeActivity.this, DetectionActivity.class);
             intent.putExtra("MODE", "Finder");
             startActivity(intent);
         });
+
+        // 4. Language Button Logic
+        btnLanguage.setOnClickListener(v -> {
+            AppSettings.isEnglish = !AppSettings.isEnglish;
+
+            if (AppSettings.isEnglish) {
+                tts.setLanguage(Locale.US);
+                speak("English Selected");
+                Toast.makeText(this, "English Selected", Toast.LENGTH_SHORT).show();
+            } else {
+                speak("اردو منتخب کی گئی ہے");
+                Toast.makeText(this, "Urdu Selected", Toast.LENGTH_SHORT).show();
+            }
+        });
+
+        btnMic.setOnClickListener(v -> startVoice());
     }
 
     private void speak(String text) {
@@ -102,7 +100,6 @@ public class HomeActivity extends AppCompatActivity {
             } else if (command.contains("find") || command.contains("talaash")) {
                 Intent intent = new Intent(this, DetectionActivity.class);
                 intent.putExtra("MODE", "Finder");
-                // Remove "find" or "talaash karein" from the string
                 String target = command.replace("find", "").replace("talaash karein", "").trim();
                 intent.putExtra("TARGET", target);
                 startActivity(intent);
