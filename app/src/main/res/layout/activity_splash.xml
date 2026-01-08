@@ -13,13 +13,20 @@
 
         <ImageView
             android:id="@+id/ivLogo"
-            android:layout_width="400dp"
-            android:layout_height="400dp"
-            android:layout_marginBottom="16dp"
+            android:layout_width="600dp"
+            android:layout_height="600dp"
             android:src="@drawable/smart_guide_logo"
             android:scaleType="fitCenter"
             android:contentDescription="Smart Guide Logo" />
 
+        <ImageView
+            android:id="@+id/app_name"
+            android:layout_width="400dp"
+            android:layout_height="500dp"
+            android:layout_marginBottom="16dp"
+            android:src="@drawable/smart_guide_name"
+            android:scaleType="fitCenter"
+            android:contentDescription="Smart Guide Logo" />
 <!--        <TextView-->
 <!--            android:id="@+id/tvLogoText"-->
 <!--            android:layout_width="wrap_content"-->
