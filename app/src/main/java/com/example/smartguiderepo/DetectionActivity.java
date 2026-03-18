@@ -55,6 +55,7 @@ public class DetectionActivity extends AppCompatActivity {
     private boolean isDetecting = true;
     private boolean isTorchOn = false;
     private long lastBrightnessCheck = 0;
+    
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -117,7 +118,6 @@ public class DetectionActivity extends AppCompatActivity {
 
                 imageAnalysis.setAnalyzer(cameraExecutor, imageProxy -> {
                     if (!isDetecting) { imageProxy.close(); return; }
-                    checkBrightness(imageProxy);
 
                     runOnUiThread(() -> {
                         Bitmap bitmap = cameraPreview.getBitmap();
@@ -125,19 +125,32 @@ public class DetectionActivity extends AppCompatActivity {
                             cameraExecutor.execute(() -> {
                                 List<Detection> results = detectorHelper.detect(bitmap);
                                 List<YoloDetector.BoundingBox> mappedResults = new ArrayList<>();
+
                                 if (results != null) {
                                     for (Detection det : results) {
-                                        String label = det.getCategories().get(0).getLabel();
+                                        String label = det.getCategories().get(0).getLabel().toLowerCase();
                                         float score = det.getCategories().get(0).getScore();
                                         RectF rawBox = det.getBoundingBox();
-                                        RectF normBox = new RectF(rawBox.left/bitmap.getWidth(), rawBox.top/bitmap.getHeight(), rawBox.right/bitmap.getWidth(), rawBox.bottom/bitmap.getHeight());
+
+                                        // 1. Calculate distance using Triangle Similarity
+                                        float knownWidth = OBJECT_WIDTHS.getOrDefault(label, 40f); // Default to 40cm
+                                        float pixelWidth = rawBox.width();
+                                        float distanceCm = (knownWidth * FOCAL_LENGTH) / pixelWidth;
+                                        float distanceMeters = distanceCm / 100f;
+
+                                        RectF normBox = new RectF(
+                                                rawBox.left / bitmap.getWidth(),
+                                                rawBox.top / bitmap.getHeight(),
+                                                rawBox.right / bitmap.getWidth(),
+                                                rawBox.bottom / bitmap.getHeight()
+                                        );
 
                                         if (currentMode.equalsIgnoreCase("Finder")) {
-                                            if (label.toLowerCase().contains(targetObject)) {
-                                                mappedResults.add(new YoloDetector.BoundingBox(label, score, normBox));
+                                            if (label.contains(targetObject)) {
+                                                mappedResults.add(new YoloDetector.BoundingBox(label, score, normBox, distanceMeters));
                                             }
                                         } else {
-                                            mappedResults.add(new YoloDetector.BoundingBox(label, score, normBox));
+                                            mappedResults.add(new YoloDetector.BoundingBox(label, score, normBox, distanceMeters));
                                         }
                                     }
                                 }
@@ -162,27 +175,30 @@ public class DetectionActivity extends AppCompatActivity {
 
         long currentTime = System.currentTimeMillis();
 
-        // LIMIT VIBRATION
+        // VIBRATION DEBOUNCE (Existing)
         if (currentTime - lastVibrateTime > 1500) {
             if (vibrator != null && vibrator.hasVibrator()) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE));
-                } else {
-                    vibrator.vibrate(200);
-                }
+                vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE));
             }
             lastVibrateTime = currentTime;
         }
 
-        // LOCALIZED FEEDBACK
+        // TTS DEBOUNCE AND DISTANCE FORMATTING
         if (currentTime - lastSpeakTime > 3000) {
-            String originalLabel = results.get(0).label;
+            YoloDetector.BoundingBox primaryResult = results.get(0);
+            String originalLabel = primaryResult.label;
             String translatedLabel = translateLabel(originalLabel);
 
+            // Round to nearest 0.5 meters
+            float roundedDistance = Math.round(primaryResult.distance * 2) / 2.0f;
+            String distStr = String.valueOf(roundedDistance);
+
             if (currentMode.equalsIgnoreCase("Finder")) {
-                speak(originalLabel + " found", translatedLabel + " مل گیا");
+                speak(originalLabel + " found at " + distStr + " meters",
+                        translatedLabel + " مل گیا، " + distStr + " میٹر دور");
             } else {
-                speak("Caution, " + originalLabel, "خبردار، " + translatedLabel);
+                speak("Caution, " + originalLabel + ", " + distStr + " meters",
+                        "خبردار، " + translatedLabel + "، " + distStr + " میٹر");
             }
             lastSpeakTime = currentTime;
         }
@@ -289,4 +305,17 @@ public class DetectionActivity extends AppCompatActivity {
         if (cameraExecutor != null) cameraExecutor.shutdown();
         if (tts != null) { tts.stop(); tts.shutdown(); }
     }
+
+    // Average widths in centimeters
+    private static final java.util.Map<String, Float> OBJECT_WIDTHS = new java.util.HashMap<String, Float>() {{
+        put("person", 45f);
+        put("door", 90f);
+        put("chair", 50f);
+        put("laptop", 35f);
+        put("cell phone", 15f);
+        put("bottle", 8f);
+    }};
+
+    // Approximate focal length in pixels (Calibration: F = (Pixel_Width * Distance) / Real_Width)
+    private static final float FOCAL_LENGTH = 650f;
 }

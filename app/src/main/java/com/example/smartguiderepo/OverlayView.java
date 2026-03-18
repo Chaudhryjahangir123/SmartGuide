@@ -46,17 +46,18 @@ public class OverlayView extends View {
         int height = getHeight();
 
         for (YoloDetector.BoundingBox box : boxes) {
-            // Convert normalized coordinates (0..1) to screen pixels
             float left = box.box.left * width;
             float top = box.box.top * height;
             float right = box.box.right * width;
             float bottom = box.box.bottom * height;
 
-            // Draw Box
             canvas.drawRect(left, top, right, bottom, boxPaint);
 
-            // Draw Label
-            canvas.drawText(box.label + " " + (int)(box.score*100) + "%", left, top - 10, textPaint);
+            // Display label, confidence, and distance
+            String text = String.format("%s %.0f%% (%.1fm)",
+                    box.label, box.score * 100, box.distance);
+            canvas.drawText(text, left, top - 10, textPaint);
         }
     }
+
 }

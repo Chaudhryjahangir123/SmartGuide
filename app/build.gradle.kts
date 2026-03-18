@@ -29,6 +29,9 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
+    buildFeatures {
+        mlModelBinding = true
+    }
 }
 
 dependencies {
@@ -54,4 +57,6 @@ dependencies {
 
     implementation("org.tensorflow:tensorflow-lite-task-vision:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-gpu-delegate-plugin:0.4.4")
+    // Keep MediaPipe as well if needed for other things, but we'll use TFLite for captioning
+
 }

@@ -32,3 +32,4 @@ public class ObjectDetectorHelper {
         return detector.detect(TensorImage.fromBitmap(image));
     }
 }
+

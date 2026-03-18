@@ -26,11 +26,13 @@ public class YoloDetector {
         public String label;
         public float score;
         public RectF box;
+        public float distance; // Added distance field
 
-        public BoundingBox(String label, float score, RectF box) {
+        public BoundingBox(String label, float score, RectF box, float distance) {
             this.label = label;
             this.score = score;
             this.box = box;
+            this.distance = distance;
         }
     }
 }
