@@ -6,7 +6,6 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.RectF;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
@@ -55,7 +54,20 @@ public class DetectionActivity extends AppCompatActivity {
     private boolean isDetecting = true;
     private boolean isTorchOn = false;
     private long lastBrightnessCheck = 0;
-    
+
+
+    private static final float ZONE_CRITICAL = 1.0f;
+    private static final float ZONE_WARNING = 2.5f;
+
+
+    private static final long[] PATTERN_CRITICAL = {0, 600, 100, 600};
+    private static final long[] PATTERN_WARNING = {0, 200, 150, 200};
+
+
+    private static final long INTERVAL_CRITICAL = 3000;
+    private static final long INTERVAL_WARNING = 5000;
+    private static final long INTERVAL_FAR = 10000;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -72,7 +84,6 @@ public class DetectionActivity extends AppCompatActivity {
 
         btnMicOverlay.setOnClickListener(v -> {
             isDetecting = false;
-            // Immediate localized prompt
             speak("Listening", "سن رہا ہوں");
 
             Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
@@ -132,8 +143,7 @@ public class DetectionActivity extends AppCompatActivity {
                                         float score = det.getCategories().get(0).getScore();
                                         RectF rawBox = det.getBoundingBox();
 
-                                        // 1. Calculate distance using Triangle Similarity
-                                        float knownWidth = OBJECT_WIDTHS.getOrDefault(label, 40f); // Default to 40cm
+                                        float knownWidth = OBJECT_WIDTHS.getOrDefault(label, 40f);
                                         float pixelWidth = rawBox.width();
                                         float distanceCm = (knownWidth * FOCAL_LENGTH) / pixelWidth;
                                         float distanceMeters = distanceCm / 100f;
@@ -170,39 +180,76 @@ public class DetectionActivity extends AppCompatActivity {
         }, ContextCompat.getMainExecutor(this));
     }
 
+
     private void processFeedback(List<YoloDetector.BoundingBox> results) {
         if (results.isEmpty()) return;
 
+
+        YoloDetector.BoundingBox closest = results.get(0);
+        for (YoloDetector.BoundingBox b : results) {
+            if (b.distance < closest.distance) closest = b;
+        }
+
+        float distance = closest.distance;
         long currentTime = System.currentTimeMillis();
 
-        // VIBRATION DEBOUNCE (Existing)
-        if (currentTime - lastVibrateTime > 1500) {
-            if (vibrator != null && vibrator.hasVibrator()) {
-                vibrator.vibrate(VibrationEffect.createOneShot(200, VibrationEffect.DEFAULT_AMPLITUDE));
-            }
+
+        long interval;
+        if (distance <= ZONE_CRITICAL) interval = INTERVAL_CRITICAL;
+        else if (distance <= ZONE_WARNING) interval = INTERVAL_WARNING;
+        else interval = INTERVAL_FAR;
+
+
+        if (currentTime - lastVibrateTime > interval) {
+            triggerVibration(distance);
             lastVibrateTime = currentTime;
         }
 
-        // TTS DEBOUNCE AND DISTANCE FORMATTING
-        if (currentTime - lastSpeakTime > 3000) {
-            YoloDetector.BoundingBox primaryResult = results.get(0);
-            String originalLabel = primaryResult.label;
-            String translatedLabel = translateLabel(originalLabel);
 
-            // Round to nearest 0.5 meters
-            float roundedDistance = Math.round(primaryResult.distance * 2) / 2.0f;
-            String distStr = String.valueOf(roundedDistance);
-
-            if (currentMode.equalsIgnoreCase("Finder")) {
-                speak(originalLabel + " found at " + distStr + " meters",
-                        translatedLabel + " مل گیا، " + distStr + " میٹر دور");
-            } else {
-                speak("Caution, " + originalLabel + ", " + distStr + " meters",
-                        "خبردار، " + translatedLabel + "، " + distStr + " میٹر");
-            }
+        if (currentTime - lastSpeakTime > (interval + 3000)) {
+            triggerVoiceFeedback(closest);
             lastSpeakTime = currentTime;
         }
     }
+
+    private void triggerVibration(float distance) {
+        if (vibrator == null || !vibrator.hasVibrator()) return;
+
+        VibrationEffect effect;
+        if (distance <= ZONE_CRITICAL) {
+
+            effect = VibrationEffect.createWaveform(PATTERN_CRITICAL, -1);
+        } else if (distance <= ZONE_WARNING) {
+
+            effect = VibrationEffect.createWaveform(PATTERN_WARNING, -1);
+        } else {
+
+            effect = VibrationEffect.createOneShot(150, VibrationEffect.DEFAULT_AMPLITUDE);
+        }
+        vibrator.vibrate(effect);
+    }
+
+    private void triggerVoiceFeedback(YoloDetector.BoundingBox item) {
+        String label = item.label;
+        String translated = translateLabel(label);
+        float roundedDist = Math.round(item.distance * 2) / 2.0f; // Round to 0.5m
+
+        String enMsg, urMsg;
+
+        if (item.distance <= ZONE_CRITICAL) {
+            enMsg = "Stop! " + label + " is very close.";
+            urMsg = "رک جائیں! " + translated + " بالکل قریب ہے۔";
+        } else if (item.distance <= ZONE_WARNING) {
+            enMsg = "Caution, " + label + " at " + roundedDist + " meters.";
+            urMsg = "خبردار، " + translated + " " + roundedDist + " میٹر پر ہے۔";
+        } else {
+            enMsg = label + " detected at " + roundedDist + " meters.";
+            urMsg = translated + " نظر آیا، " + roundedDist + " میٹر دور۔";
+        }
+
+        speak(enMsg, urMsg);
+    }
+    // ---------------------------------
 
     private String translateLabel(String label) {
         if (AppSettings.isEnglish) return label;
@@ -252,24 +299,6 @@ public class DetectionActivity extends AppCompatActivity {
         }
     }
 
-    private void checkBrightness(androidx.camera.core.ImageProxy image) {
-        long now = System.currentTimeMillis();
-        if (now - lastBrightnessCheck < 2000) return;
-        lastBrightnessCheck = now;
-
-        ByteBuffer buffer = image.getPlanes()[0].getBuffer();
-        byte[] data = new byte[buffer.remaining()];
-        buffer.get(data);
-        long sum = 0;
-        for (int i = 0; i < data.length; i += 50) sum += (data[i] & 0xFF);
-        long avg = sum / (data.length / 50);
-
-        runOnUiThread(() -> {
-            if (avg < 40 && !isTorchOn) toggleTorch(true);
-            else if (avg > 80 && isTorchOn) toggleTorch(false);
-        });
-    }
-
     private void toggleTorch(boolean status) {
         if (camera != null && camera.getCameraInfo().hasFlashUnit()) {
             camera.getCameraControl().enableTorch(status);
@@ -296,7 +325,7 @@ public class DetectionActivity extends AppCompatActivity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
-        isDetecting = true; // Resume detection after voice input
+        isDetecting = true;
     }
 
     @Override
@@ -306,7 +335,6 @@ public class DetectionActivity extends AppCompatActivity {
         if (tts != null) { tts.stop(); tts.shutdown(); }
     }
 
-    // Average widths in centimeters
     private static final java.util.Map<String, Float> OBJECT_WIDTHS = new java.util.HashMap<String, Float>() {{
         put("person", 45f);
         put("door", 90f);
@@ -316,6 +344,5 @@ public class DetectionActivity extends AppCompatActivity {
         put("bottle", 8f);
     }};
 
-    // Approximate focal length in pixels (Calibration: F = (Pixel_Width * Distance) / Real_Width)
     private static final float FOCAL_LENGTH = 650f;
 }
