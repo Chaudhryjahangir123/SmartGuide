@@ -15,8 +15,8 @@ public class ObjectDetectorHelper {
         try {
             // Adjust options for speed/accuracy
             ObjectDetector.ObjectDetectorOptions options = ObjectDetector.ObjectDetectorOptions.builder()
-                    .setMaxResults(3)
-                    .setScoreThreshold(0.5f)
+                    .setMaxResults(2)
+                    .setScoreThreshold(0.4f)
                     .build();
 
             // Loads the brain from assets/detect.tflite
