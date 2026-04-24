@@ -13,3 +13,6 @@
 .externalNativeBuild
 .cxx
 local.properties
+
+# Cloned UVC camera library (not tracked — re-clone with: git clone https://github.com/jiangdongguo/AndroidUSBCamera.git usbcamera)
+usbcamera/

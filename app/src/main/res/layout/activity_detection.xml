@@ -8,6 +8,13 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
+    <!-- UVC / USB webcam preview (hidden until a USB camera is connected) -->
+    <SurfaceView
+        android:id="@+id/uvcPreview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
     <com.example.smartguiderepo.OverlayView
         android:id="@+id/overlay"
         android:layout_width="match_parent"

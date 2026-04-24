@@ -16,9 +16,14 @@ dependencyResolutionManagement {
     repositories {
         google()
         mavenCentral()
+        maven { url = uri("https://jitpack.io") }
     }
 }
 
 rootProject.name = "SmartGuideRepo"
 include(":app")
+
+// UVC camera library (cloned from github.com/jiangdongguo/AndroidUSBCamera)
+include(":libuvc")
+project(":libuvc").projectDir = File("usbcamera/libuvc")
  

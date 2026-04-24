@@ -45,6 +45,9 @@ dependencies {
 
     implementation("org.tensorflow:tensorflow-lite:2.14.0")
 
+    // UVC camera driver — local module from usbcamera/libuvc (no JitPack needed)
+    implementation(project(":libuvc"))
+
     // CameraX
     implementation("androidx.camera:camera-core:1.3.0")
     implementation("androidx.camera:camera-camera2:1.3.0")
@@ -57,6 +60,6 @@ dependencies {
 
     implementation("org.tensorflow:tensorflow-lite-task-vision:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-gpu-delegate-plugin:0.4.4")
-    // Keep MediaPipe as well if needed for other things, but we'll use TFLite for captioning
-
+    // UVC USB camera driver (Logitech C270 via OTG) — AAR placed in app/libs/
+    implementation(fileTree(mapOf("dir" to "libs", "include" to listOf("*.aar", "*.jar"))))
 }

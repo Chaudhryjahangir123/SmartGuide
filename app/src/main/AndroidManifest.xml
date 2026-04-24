@@ -37,8 +37,16 @@
 
         <activity
             android:name=".DetectionActivity"
-            android:exported="false"
-            android:screenOrientation="portrait"/>
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
+                android:resource="@xml/device_filter" />
+        </activity>
 
 
     </application>

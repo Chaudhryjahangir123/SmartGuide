@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Logitech C270 HD Webcam  (VID 0x046D = 1133, PID 0x0825 = 2085) -->
+    <usb-device vendor-id="1133" product-id="2085" />
+</resources>
