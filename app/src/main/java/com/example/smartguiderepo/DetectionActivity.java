@@ -18,8 +18,14 @@ import android.util.Log;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import android.hardware.camera2.CameraCharacteristics;
+import android.hardware.camera2.CameraManager;
+
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.camera.camera2.interop.Camera2CameraInfo;
+import androidx.camera.camera2.interop.ExperimentalCamera2Interop;
 import androidx.camera.core.Camera;
+import androidx.camera.core.CameraInfo;
 import androidx.camera.core.CameraSelector;
 import androidx.camera.core.ImageAnalysis;
 import androidx.camera.core.Preview;
@@ -69,6 +75,7 @@ public class DetectionActivity extends AppCompatActivity {
     private static final long INTERVAL_WARNING = 5000;
     private static final long INTERVAL_FAR = 10000;
 
+    @ExperimentalCamera2Interop
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -186,6 +193,36 @@ public class DetectionActivity extends AppCompatActivity {
         }
     }
 
+    @ExperimentalCamera2Interop
+    private CameraSelector getExternalCameraSelector() {
+        try {
+            CameraManager cameraManager = (CameraManager) getSystemService(Context.CAMERA_SERVICE);
+            for (String cameraId : cameraManager.getCameraIdList()) {
+                CameraCharacteristics chars = cameraManager.getCameraCharacteristics(cameraId);
+                Integer facing = chars.get(CameraCharacteristics.LENS_FACING);
+                if (facing != null && facing == CameraCharacteristics.LENS_FACING_EXTERNAL) {
+                    final String externalId = cameraId;
+                    Log.d("Camera", "USB external camera detected, id=" + externalId);
+                    return new CameraSelector.Builder()
+                            .addCameraFilter(cameraInfoList -> {
+                                List<CameraInfo> result = new ArrayList<>();
+                                for (CameraInfo info : cameraInfoList) {
+                                    if (Camera2CameraInfo.from(info).getCameraId().equals(externalId)) {
+                                        result.add(info);
+                                    }
+                                }
+                                return result;
+                            })
+                            .build();
+                }
+            }
+        } catch (Exception e) {
+            Log.e("Camera", "External camera scan error: " + e.getMessage());
+        }
+        return null;
+    }
+
+    @ExperimentalCamera2Interop
     private void startCamera() {
         ListenableFuture<ProcessCameraProvider> cameraProviderFuture = ProcessCameraProvider.getInstance(this);
         cameraProviderFuture.addListener(() -> {
@@ -199,7 +236,7 @@ public class DetectionActivity extends AppCompatActivity {
                         .build();
 
                 imageAnalysis.setAnalyzer(cameraExecutor, imageProxy -> {
-                    if (!isDetecting) { imageProxy.close(); return; } // Effectively STOPS logic
+                    if (!isDetecting) { imageProxy.close(); return; }
 
                     runOnUiThread(() -> {
                         Bitmap bitmap = cameraPreview.getBitmap();
@@ -225,7 +262,7 @@ public class DetectionActivity extends AppCompatActivity {
                                         if (currentMode.equalsIgnoreCase("Finder")) {
                                             if (label.contains(targetObject)) {
                                                 mappedResults.add(new YoloDetector.BoundingBox(label, score, normBox, distanceMeters));
-                                            }
+                                        }
                                         } else {
                                             mappedResults.add(new YoloDetector.BoundingBox(label, score, normBox, distanceMeters));
                                         }
@@ -241,8 +278,14 @@ public class DetectionActivity extends AppCompatActivity {
                     imageProxy.close();
                 });
 
+                CameraSelector selector = getExternalCameraSelector();
+                if (selector == null) {
+                    Log.d("Camera", "No USB camera found, using built-in back camera");
+                    selector = CameraSelector.DEFAULT_BACK_CAMERA;
+                }
+
                 cameraProvider.unbindAll();
-                cameraProvider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, imageAnalysis);
+                camera = cameraProvider.bindToLifecycle(this, selector, preview, imageAnalysis);
             } catch (Exception e) { Log.e("Camera", "Error", e); }
         }, ContextCompat.getMainExecutor(this));
     }
