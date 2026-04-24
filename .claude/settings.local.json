@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew compileDebugJavaWithJavac)",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\Android\\\\Android Studio\\\\jbr\"; $env:PATH = \"$env:JAVA_HOME\\\\bin;$env:PATH\"; Set-Location \"C:\\\\Users\\\\muham\\\\OneDrive\\\\Desktop\\\\SmartGuide\"; .\\\\gradlew.bat compileDebugJavaWithJavac 2>&1 | Select-Object -Last 30)"
+    ]
+  }
+}
