@@ -27,6 +27,7 @@ import android.view.View;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.OptIn;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.camera.camera2.interop.Camera2CameraInfo;
 import androidx.camera.camera2.interop.ExperimentalCamera2Interop;
@@ -285,6 +286,7 @@ public class DetectionActivity extends AppCompatActivity {
         }
     };
 
+    @OptIn(markerClass = ExperimentalCamera2Interop.class)
     private void onUSBCameraGone() {
         releaseUVCCamera();
         runOnUiThread(() -> {
