@@ -14,5 +14,9 @@
 .cxx
 local.properties
 
-# Cloned UVC camera library (not tracked — re-clone with: git clone https://github.com/jiangdongguo/AndroidUSBCamera.git usbcamera)
-usbcamera/
+# UVC camera library — source is tracked; build outputs are excluded by usbcamera/libuvc/.gitignore etc.
+usbcamera/libuvc/build/
+usbcamera/libuvc/src/main/obj/
+usbcamera/libausbc/build/
+usbcamera/libnative/build/
+usbcamera/app/build/
