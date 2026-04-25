@@ -22,6 +22,7 @@ import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
+import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.ImageView;
@@ -73,6 +74,7 @@ public class DetectionActivity extends AppCompatActivity {
     // ── Detection ──────────────────────────────────────────────────────────
     private ObjectDetectorHelper detectorHelper;
     private ExecutorService      cameraExecutor;
+    private ExecutorService      detectionExecutor;
     private Camera               camera;
 
     // ── USB / UVC ──────────────────────────────────────────────────────────
@@ -89,6 +91,7 @@ public class DetectionActivity extends AppCompatActivity {
     private SpeechRecognizer speechRecognizer;
     private Intent           speechIntent;
     private boolean          isSpeechInitialized = false;
+    private volatile boolean isListening         = false;
 
     // ── State ──────────────────────────────────────────────────────────────
     private String  currentMode  = "General";
@@ -151,8 +154,9 @@ public class DetectionActivity extends AppCompatActivity {
 
         initSpeechRecognizer();
 
-        detectorHelper = new ObjectDetectorHelper(this);
-        cameraExecutor = Executors.newSingleThreadExecutor();
+        detectorHelper    = new ObjectDetectorHelper(this);
+        cameraExecutor    = Executors.newSingleThreadExecutor();
+        detectionExecutor = Executors.newSingleThreadExecutor();
 
         initUSBMonitor();
 
@@ -176,8 +180,9 @@ public class DetectionActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (speechRecognizer != null) speechRecognizer.destroy();
-        if (cameraExecutor  != null) cameraExecutor.shutdown();
+        if (speechRecognizer  != null) speechRecognizer.destroy();
+        if (cameraExecutor   != null) cameraExecutor.shutdown();
+        if (detectionExecutor != null) detectionExecutor.shutdown();
         if (tts != null) { tts.stop(); tts.shutdown(); }
         releaseUVCCamera();
         if (usbMonitor != null) { usbMonitor.destroy(); usbMonitor = null; }
@@ -229,40 +234,55 @@ public class DetectionActivity extends AppCompatActivity {
     // ══════════════════════════════════════════════════════════════════════
 
     private void openUVCCamera(USBMonitor.UsbControlBlock ctrlBlock) {
-        cameraExecutor.execute(() -> {
-            try {
-                releaseUVCCamera();
+        // The SurfaceView must be VISIBLE before its surface is valid.
+        // Make it visible on the UI thread first, then open the camera once the surface is ready.
+        runOnUiThread(() -> {
+            stopCameraX();
+            cameraPreview.setVisibility(View.GONE);
+            uvcPreview.setVisibility(View.VISIBLE);
 
-                uvcCamera = new UVCCamera();
-                uvcCamera.open(ctrlBlock);
-
-                // C270 supports MJPEG natively — prefer it for efficiency
-                try {
-                    uvcCamera.setPreviewSize(UVC_WIDTH, UVC_HEIGHT, UVCCamera.FRAME_FORMAT_MJPEG);
-                } catch (IllegalArgumentException ex) {
-                    uvcCamera.setPreviewSize(UVC_WIDTH, UVC_HEIGHT); // fallback to YUYV
-                }
-
-                // Display to SurfaceView
-                uvcCamera.setPreviewDisplay(uvcPreview.getHolder().getSurface());
-
-                // Frame callback for object detection (NV21 bytes)
-                uvcCamera.setFrameCallback(uvcFrameCallback, UVCCamera.PIXEL_FORMAT_NV21);
-                uvcCamera.startPreview();
-
-                uvcActive = true;
-                runOnUiThread(() -> {
-                    stopCameraX();
-                    cameraPreview.setVisibility(View.GONE);
-                    uvcPreview.setVisibility(View.VISIBLE);
+            SurfaceHolder holder = uvcPreview.getHolder();
+            if (holder.getSurface().isValid()) {
+                cameraExecutor.execute(() -> initUVCCamera(ctrlBlock));
+            } else {
+                holder.addCallback(new SurfaceHolder.Callback() {
+                    @Override
+                    public void surfaceCreated(SurfaceHolder h) {
+                        holder.removeCallback(this);
+                        cameraExecutor.execute(() -> initUVCCamera(ctrlBlock));
+                    }
+                    @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int ht) {}
+                    @Override public void surfaceDestroyed(SurfaceHolder h) {}
                 });
-                Log.d(TAG, "UVC camera started " + UVC_WIDTH + "x" + UVC_HEIGHT);
-
-            } catch (Exception e) {
-                Log.e(TAG, "openUVCCamera failed: " + e.getMessage());
-                uvcActive = false;
             }
         });
+    }
+
+    private void initUVCCamera(USBMonitor.UsbControlBlock ctrlBlock) {
+        try {
+            releaseUVCCamera();
+
+            uvcCamera = new UVCCamera();
+            uvcCamera.open(ctrlBlock);
+
+            // C270 supports MJPEG natively — prefer it for efficiency
+            try {
+                uvcCamera.setPreviewSize(UVC_WIDTH, UVC_HEIGHT, UVCCamera.FRAME_FORMAT_MJPEG);
+            } catch (IllegalArgumentException ex) {
+                uvcCamera.setPreviewSize(UVC_WIDTH, UVC_HEIGHT); // fallback to YUYV
+            }
+
+            uvcCamera.setPreviewDisplay(uvcPreview.getHolder().getSurface());
+            uvcCamera.setFrameCallback(uvcFrameCallback, UVCCamera.PIXEL_FORMAT_NV21);
+            uvcCamera.startPreview();
+
+            uvcActive = true;
+            Log.d(TAG, "UVC camera started " + UVC_WIDTH + "x" + UVC_HEIGHT);
+
+        } catch (Exception e) {
+            Log.e(TAG, "initUVCCamera failed: " + e.getMessage());
+            uvcActive = false;
+        }
     }
 
     // Receives NV21 frames from the webcam on the USB read thread
@@ -413,7 +433,7 @@ public class DetectionActivity extends AppCompatActivity {
                     if (!isDetecting || uvcActive) { imageProxy.close(); return; }
                     runOnUiThread(() -> {
                         Bitmap bmp = cameraPreview.getBitmap();
-                        if (bmp != null) cameraExecutor.execute(() -> runDetection(bmp));
+                        if (bmp != null) detectionExecutor.execute(() -> runDetection(bmp));
                     });
                     imageProxy.close();
                 });
@@ -443,18 +463,19 @@ public class DetectionActivity extends AppCompatActivity {
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
             @Override
             public void onResults(Bundle results) {
+                isListening = false;
                 ArrayList<String> matches =
                         results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 if (matches != null && !matches.isEmpty())
                     handleVoiceCommand(matches.get(0).toLowerCase());
                 startListening();
             }
-            @Override public void onError(int error)          { startListening(); }
+            @Override public void onError(int error)          { isListening = false; startListening(); }
             @Override public void onReadyForSpeech(Bundle p)  {}
             @Override public void onBeginningOfSpeech()       {}
             @Override public void onRmsChanged(float rms)     {}
             @Override public void onBufferReceived(byte[] b)  {}
-            @Override public void onEndOfSpeech()             {}
+            @Override public void onEndOfSpeech()             { isListening = false; }
             @Override public void onPartialResults(Bundle p)  {}
             @Override public void onEvent(int t, Bundle p)    {}
         });
@@ -480,13 +501,19 @@ public class DetectionActivity extends AppCompatActivity {
     }
 
     private void startListening() {
-        if (isSpeechInitialized)
-            runOnUiThread(() -> speechRecognizer.startListening(speechIntent));
+        if (isSpeechInitialized && !isListening)
+            runOnUiThread(() -> {
+                isListening = true;
+                speechRecognizer.startListening(speechIntent);
+            });
     }
 
     private void stopListening() {
-        if (isSpeechInitialized)
-            runOnUiThread(() -> speechRecognizer.stopListening());
+        if (isSpeechInitialized && isListening)
+            runOnUiThread(() -> {
+                isListening = false;
+                speechRecognizer.stopListening();
+            });
     }
 
     // ══════════════════════════════════════════════════════════════════════
